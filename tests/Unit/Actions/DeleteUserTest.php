@@ -6,6 +6,7 @@ use App\Actions\CreateCommitTranslation;
 use App\Actions\DeleteUser;
 use App\Actions\UpdateCommitHotScores;
 use App\Ai\Agents\CommitTranslator;
+use App\Jobs\DeleteLiveInput;
 use App\Models\Commit;
 use App\Models\CommitImage;
 use App\Models\Device;
@@ -19,6 +20,7 @@ use App\Services\CommitTranslations;
 use App\Services\TheAlgorithm;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 
 it('may delete a user', function (): void {
@@ -29,6 +31,23 @@ it('may delete a user', function (): void {
     $action->handle($user);
 
     expect($user->exists)->toBeFalse();
+});
+
+it('deletes the live input of a deleted user, so it takes no more streams', function (): void {
+    Queue::fake();
+    $user = User::factory()->create(['live_input_id' => 'input-1']);
+
+    resolve(DeleteUser::class)->handle($user);
+
+    Queue::assertPushed(DeleteLiveInput::class, fn (DeleteLiveInput $job): bool => $job->uid === 'input-1');
+});
+
+it('has no live input to delete for a user who never streamed here', function (): void {
+    Queue::fake();
+
+    resolve(DeleteUser::class)->handle(User::factory()->create());
+
+    Queue::assertNotPushed(DeleteLiveInput::class);
 });
 
 it('erases the commits of a deleted user along with the replies under them', function (): void {

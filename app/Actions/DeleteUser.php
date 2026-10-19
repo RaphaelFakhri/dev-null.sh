@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions;
 
+use App\Jobs\DeleteLiveInput;
 use App\Models\Commit;
 use App\Models\CommitImage;
 use App\Models\CommitReport;
@@ -28,7 +29,8 @@ final readonly class DeleteUser
     /**
      * The user's top-level commits are erased with every reply under them, and so are their replies, except the ones
      * other people replied to: those stay behind as tombstones with no author, so the replies under them keep their thread.
-     * The database cascades the image rows of erased commits and the user's scheduled commits, but the image files are erased here.
+     * The database cascades the image rows of erased commits and the user's scheduled commits, but the image files are erased here,
+     * and so is their live input on Cloudflare, which could otherwise still take a stream.
      */
     public function handle(User $user): void
     {
@@ -65,6 +67,10 @@ final readonly class DeleteUser
         });
 
         Storage::disk()->delete($imagePaths);
+
+        if ($user->live_input_id !== null) {
+            dispatch(new DeleteLiveInput($user->live_input_id));
+        }
     }
 
     /**

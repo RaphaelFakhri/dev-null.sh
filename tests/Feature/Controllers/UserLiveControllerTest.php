@@ -32,6 +32,7 @@ it('goes live with a YouTube stream for a few hours', function (string $url): vo
             ->where('user.live', [
                 'url' => 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
                 'thumbnail_url' => 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault_live.jpg',
+                'embed_url' => null,
             ]));
 })->with([
     'live link' => 'https://www.youtube.com/live/dQw4w9WgXcQ?si=share',

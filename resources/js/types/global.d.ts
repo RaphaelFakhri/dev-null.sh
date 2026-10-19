@@ -1,4 +1,4 @@
-import type { Auth, SuggestedUser } from '@/types/auth';
+import type { Auth, LiveInput, SuggestedUser } from '@/types/auth';
 import type { Commit } from '@/types/commit';
 import type { CommittedFlash, DeletedFlash, FlashToast } from '@/types/ui';
 
@@ -11,6 +11,7 @@ declare module '@inertiajs/core' {
             restored?: Commit;
             scheduled?: boolean;
             localSignIn?: boolean;
+            liveInput?: LiveInput;
         };
         sharedPageProps: {
             name: string;
