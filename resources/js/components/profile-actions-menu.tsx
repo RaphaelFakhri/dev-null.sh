@@ -24,12 +24,17 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import type { LiveInput, User } from '@/types';
 
-const hours = Array.from({ length: 12 }, (_, index) => index + 1);
+/**
+ * Mirrors `User::MAX_LIVE_HOURS`, the longest a stream can be shown as live.
+ */
+const maxHours = 12;
+
+const defaultHours = 2;
 
 const fieldClassName =
     'flex h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm dark:bg-input/30';
 
-type Source = 'here' | 'youtube';
+type Source = 'here' | 'link';
 
 /**
  * The quick actions on your own profile, where other people's profiles have the mute and block menu.
@@ -44,7 +49,7 @@ export function ProfileActionsMenu({
     const [isGoingLive, setIsGoingLive] = useState(false);
     const [isEnding, setIsEnding] = useState(false);
     const [source, setSource] = useState<Source>(
-        canStreamHere ? 'here' : 'youtube',
+        canStreamHere ? 'here' : 'link',
     );
 
     const endStream = () =>
@@ -97,7 +102,7 @@ export function ProfileActionsMenu({
                     <DialogDescription>
                         {source === 'here'
                             ? 'Stream from OBS or any software that speaks RTMPS, and people watch you right here. Your avatar gets a live marker for as long as you choose.'
-                            : 'Share your YouTube stream and your avatar gets a live marker that sends people to it, for as long as you choose.'}
+                            : 'Share your YouTube or Twitch stream and your avatar gets a live marker that sends people to it, for as long as you choose.'}
                     </DialogDescription>
 
                     {canStreamHere && (
@@ -109,7 +114,7 @@ export function ProfileActionsMenu({
                             {(
                                 [
                                     ['here', 'Stream here'],
-                                    ['youtube', 'YouTube link'],
+                                    ['link', 'Share a link'],
                                 ] as const
                             ).map(([value, label]) => (
                                 <button
@@ -160,7 +165,7 @@ export function ProfileActionsMenu({
                                             name="url"
                                             required
                                             autoFocus
-                                            placeholder="https://www.youtube.com/live/…"
+                                            placeholder="https://www.youtube.com/live/… or https://twitch.tv/…"
                                             className={fieldClassName}
                                             data-test="live-url-input"
                                         />
@@ -267,23 +272,49 @@ function StreamHereForm({ onLive }: { onLive: () => void }) {
     );
 }
 
+/**
+ * The slider starts at the default length each time the dialog opens, since the dialog unmounts its content when closed.
+ */
 function HoursField({ error }: { error?: string }) {
+    const [hours, setHours] = useState(defaultHours);
+    const hoursLabel = hours === 1 ? '1 hour' : `${hours} hours`;
+    const filled = ((hours - 1) / (maxHours - 1)) * 100;
+
     return (
-        <div className="grid gap-2">
-            <Label htmlFor="live-hours">For</Label>
-            <select
+        <div className="grid gap-3">
+            <div className="flex items-baseline justify-between gap-4">
+                <Label htmlFor="live-hours">For</Label>
+                <output
+                    htmlFor="live-hours"
+                    className="min-w-[8ch] text-right font-mono text-[13px] text-muted-foreground tabular-nums"
+                >
+                    {hoursLabel}
+                </output>
+            </div>
+            <input
                 id="live-hours"
+                type="range"
                 name="hours"
-                defaultValue={2}
-                className={fieldClassName}
-                data-test="live-hours-select"
+                min={1}
+                max={maxHours}
+                value={hours}
+                onChange={(event) =>
+                    setHours(event.currentTarget.valueAsNumber)
+                }
+                aria-valuetext={hoursLabel}
+                style={{
+                    background: `linear-gradient(to right, var(--primary) ${filled}%, var(--muted) ${filled}%)`,
+                }}
+                className="h-1.5 w-full cursor-pointer appearance-none rounded-full outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-primary [&::-moz-range-thumb]:bg-background [&::-moz-range-thumb]:shadow-sm [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-primary [&::-webkit-slider-thumb]:bg-background [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:transition-transform active:[&::-webkit-slider-thumb]:scale-110 motion-reduce:[&::-webkit-slider-thumb]:transition-none"
+                data-test="live-hours-slider"
+            />
+            <div
+                aria-hidden
+                className="flex justify-between font-mono text-xs text-muted-foreground"
             >
-                {hours.map((count) => (
-                    <option key={count} value={count}>
-                        {count === 1 ? '1 hour' : `${count} hours`}
-                    </option>
-                ))}
-            </select>
+                <span>1h</span>
+                <span>{maxHours}h</span>
+            </div>
             <InputError message={error} />
         </div>
     );

@@ -50,6 +50,7 @@ export type Profile = User & {
 export type Auth = {
     user: Profile | null;
     isAdmin: boolean;
+    mustReadCommitRules: boolean;
     log: Log | null;
     unreadNotificationsCount: number;
     unreadMessagesCount: number;
@@ -65,4 +66,5 @@ export type Auth = {
 export type SuggestedUser = User & {
     followed_by_following_count: number;
     followers_count: number;
+    follows_you: boolean;
 };

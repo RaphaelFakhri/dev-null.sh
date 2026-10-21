@@ -45,3 +45,22 @@ void test('a YouTube stream sends the viewer to YouTube', () => {
     assert.match(html, /youtube\.com/);
     assert.match(html, /data-test="live-stream-watch"/);
 });
+
+void test('a Twitch stream sends the viewer to Twitch', () => {
+    const html = renderToStaticMarkup(
+        <LiveStreamCard
+            user={user}
+            stream={{
+                url: 'https://www.twitch.tv/octocat',
+                thumbnail_url:
+                    'https://static-cdn.jtvnw.net/previews-ttv/live_user_octocat-1280x720.jpg',
+                embed_url: null,
+            }}
+        />,
+    );
+
+    assert.doesNotMatch(html, /<iframe/);
+    assert.match(html, /twitch\.tv/);
+    assert.doesNotMatch(html, /youtube\.com/);
+    assert.match(html, /data-test="live-stream-watch"/);
+});
