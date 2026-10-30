@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Enums\OrganizationRole;
 use App\Http\Requests\ShowOrganizationRequest;
 use App\Models\Profile;
 use App\Models\User;
@@ -19,8 +20,9 @@ final readonly class OrganizationController
 {
     /**
      * Organization pages are public, at the "@handle" of users, and show the organization's GitHub profile and the
-     * commits that mention it, in the lane its admins chose or /dev/null's blue, with the users who claimed it, first
-     * claim first, and the organization's link preview. Like users' pages, they move for good to the handle's own case.
+     * commits that mention it, in the lane its admins chose or /dev/null's blue, with its admins, first one first, and
+     * the organization's link preview, and its members the way to its settings. Like users' pages, they move for good
+     * to the handle's own case.
      */
     public function show(ShowOrganizationRequest $request, #[CurrentUser] ?User $currentUser, OrganizationMentionsQuery $mentions, PageMetadata $metadata): RedirectResponse|Response
     {
@@ -43,7 +45,13 @@ final readonly class OrganizationController
                 ->cursorPaginate(20)
                 ->appends(['tab' => $request->tab()])),
             'claimUrl' => route('organization-admin.create', $organization),
-            'admins' => fn (): Collection => $organization->admins()->oldest('organization_admins.created_at')->get()->makeHidden('pivot'),
+            // Admins land on the Profile tab, which only they have...
+            'settingsUrl' => match ($currentUser instanceof User ? $organization->roleOf($currentUser) : null) {
+                OrganizationRole::Admin => route('organization-profile.edit', $organization),
+                OrganizationRole::Member => route('organization-member.index', $organization),
+                null => null,
+            },
+            'admins' => fn (): Collection => $organization->admins()->oldest('organization_members.created_at')->get()->makeHidden('pivot'),
         ])->withViewData(['preview' => $currentUser instanceof User || $request->inertia() ? null : $metadata->organization($organization)]);
     }
 }

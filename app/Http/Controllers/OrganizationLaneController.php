@@ -10,6 +10,9 @@ use App\Models\Profile;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 
+/**
+ * An organization's color, in the Profile tab of its settings. Only its admins choose it.
+ */
 final readonly class OrganizationLaneController
 {
     public function update(UpdateOrganizationLaneRequest $request, Profile $organization, UpdateOrganizationLane $action): RedirectResponse

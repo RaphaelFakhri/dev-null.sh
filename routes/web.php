@@ -81,7 +81,9 @@ use App\Http\Controllers\OperationsEventController;
 use App\Http\Controllers\OrganizationAdminController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OrganizationLaneController;
+use App\Http\Controllers\OrganizationMemberController;
 use App\Http\Controllers\OrganizationMentionController;
+use App\Http\Controllers\OrganizationProfileController;
 use App\Http\Controllers\OrganizationSitemapController;
 use App\Http\Controllers\OrgArchiveController;
 use App\Http\Controllers\OrgCallController;
@@ -340,8 +342,28 @@ Route::middleware('auth')->group(function (): void {
         ->middleware('throttle:10,1')
         ->name('organization-admin.store');
 
-    // An organization's color, which its admins choose...
-    Route::put('organizations/{organization}/lane', [OrganizationLaneController::class, 'update'])
+    // Organization Members, which admins manage in the organization's settings...
+    Route::get('organizations/{organization}/settings/members', [OrganizationMemberController::class, 'index'])
+        ->whereUuid('organization')
+        ->name('organization-member.index');
+    Route::post('organizations/{organization}/settings/members', [OrganizationMemberController::class, 'store'])
+        ->whereUuid('organization')
+        ->middleware('throttle:30,1')
+        ->name('organization-member.store');
+    Route::put('organizations/{organization}/settings/members/{member:handle}', [OrganizationMemberController::class, 'update'])
+        ->whereUuid('organization')
+        ->withoutScopedBindings()
+        ->name('organization-member.update');
+    Route::delete('organizations/{organization}/settings/members/{member:handle}', [OrganizationMemberController::class, 'destroy'])
+        ->whereUuid('organization')
+        ->withoutScopedBindings()
+        ->name('organization-member.destroy');
+
+    // An organization's profile, which its admins edit in its settings, starting with its color...
+    Route::get('organizations/{organization}/settings/profile', [OrganizationProfileController::class, 'edit'])
+        ->whereUuid('organization')
+        ->name('organization-profile.edit');
+    Route::put('organizations/{organization}/settings/lane', [OrganizationLaneController::class, 'update'])
         ->whereUuid('organization')
         ->name('organization-lane.update');
 
