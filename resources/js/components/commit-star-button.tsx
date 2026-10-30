@@ -31,9 +31,11 @@ function starLabel(starred: boolean, count: number): string {
 
 export function CommitStarButton({
     commit,
+    keyShortcut,
     className,
 }: {
     commit: Commit;
+    keyShortcut?: string;
     className?: string;
 }) {
     const { auth } = usePage().props;
@@ -156,18 +158,21 @@ export function CommitStarButton({
     };
 
     return (
-        <ActionTooltip label={starred ? 'Unstar' : 'Star'}>
+        <ActionTooltip
+            label={starred ? 'Unstar' : 'Star'}
+            shortcut={keyShortcut}
+        >
             <button
                 ref={setElement}
                 aria-disabled={request.processing}
                 type="button"
                 onClick={toggle}
                 aria-pressed={starred}
+                aria-keyshortcuts={keyShortcut}
                 aria-label={starLabel(starred, count)}
                 className={cn(
                     'group/star inline-flex items-center gap-1 rounded-md px-1.5 py-1 font-mono text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
                     starred && 'text-primary hover:text-primary',
-                    count === 0 && 'mr-[calc(0.25rem+1ch)]',
                     className,
                 )}
                 data-test="star-commit-button"
@@ -229,12 +234,14 @@ function StarCount({
                     data-test="own-star-count"
                 >
                     <Star aria-hidden className="size-4" />
-                    <span
-                        data-test="star-count"
-                        className="min-w-[1ch] text-left"
-                    >
-                        {count > 0 ? formatCount(count) : ''}
-                    </span>
+                    {count > 0 && (
+                        <span
+                            data-test="star-count"
+                            className="min-w-[1ch] text-left"
+                        >
+                            {formatCount(count)}
+                        </span>
+                    )}
                 </button>
             </CommitStargazersDialog>
         </ActionTooltip>

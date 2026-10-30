@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Actions\UpdateScheduledCommitSubmittedAt;
+use App\Contracts\Services\GitHubProvider;
 use App\Enums\ModerationReason;
 use App\Models\Ban;
 use App\Models\Commit;
@@ -20,8 +21,8 @@ beforeEach(function (): void {
 });
 
 it('may put a user in timeout', function (): void {
-    $admin = User::factory()->create(['username' => 'admin']);
-    $user = User::factory()->create(['username' => 'octocat']);
+    $admin = User::factory()->create(['handle' => 'admin']);
+    $user = User::factory()->create(['handle' => 'octocat']);
 
     config(['app.admins' => ['admin']]);
 
@@ -38,7 +39,7 @@ it('may put a user in timeout', function (): void {
 });
 
 it('validates the reason and duration of a timeout', function (): void {
-    $admin = User::factory()->create(['username' => 'admin']);
+    $admin = User::factory()->create(['handle' => 'admin']);
     $user = User::factory()->create();
 
     config(['app.admins' => ['admin']]);
@@ -51,14 +52,14 @@ it('validates the reason and duration of a timeout', function (): void {
 });
 
 it('may not be given by someone who is not an admin, nor to an admin', function (string $actor, string $target): void {
-    User::factory()->create(['username' => 'admin']);
-    User::factory()->create(['username' => 'other-admin']);
-    User::factory()->create(['username' => 'someone']);
-    User::factory()->create(['username' => 'octocat']);
+    User::factory()->create(['handle' => 'admin']);
+    User::factory()->create(['handle' => 'other-admin']);
+    User::factory()->create(['handle' => 'someone']);
+    User::factory()->create(['handle' => 'octocat']);
 
     config(['app.admins' => ['admin', 'other-admin']]);
 
-    $this->actingAs(User::query()->where('username', $actor)->sole())
+    $this->actingAs(User::query()->whereRelation('profile', 'handle', $actor)->sole())
         ->post(route('user-timeout.store', ['user' => $target]), ['reason' => 'spam', 'duration' => 60])
         ->assertForbidden();
 
@@ -72,8 +73,8 @@ it('may not be given by someone who is not an admin, nor to an admin', function 
 ]);
 
 it('ends a timeout early, and still counts it', function (): void {
-    $admin = User::factory()->create(['username' => 'admin']);
-    $user = User::factory()->create(['username' => 'octocat']);
+    $admin = User::factory()->create(['handle' => 'admin']);
+    $user = User::factory()->create(['handle' => 'octocat']);
     UserTimeout::factory()->for($user)->create();
     UserTimeout::factory()->for($user)->create(['ends_at' => now()->addDays(7)]);
     UserTimeout::factory()->for($user)->ended()->create();
@@ -91,8 +92,8 @@ it('ends a timeout early, and still counts it', function (): void {
 });
 
 it('shows admins the timeouts and ban of a user on their profile', function (): void {
-    $admin = User::factory()->create(['username' => 'admin']);
-    $user = User::factory()->create(['username' => 'octocat']);
+    $admin = User::factory()->create(['handle' => 'admin']);
+    $user = User::factory()->create(['handle' => 'octocat']);
     UserTimeout::factory()->for($user)->create(['reason' => ModerationReason::LowEffort, 'ends_at' => now()->addHour()]);
     UserTimeout::factory()->for($user)->ended()->create();
 
@@ -115,15 +116,15 @@ it('shows admins the timeouts and ban of a user on their profile', function (): 
 });
 
 it('hides moderation from everyone but admins, and from the profiles of admins', function (string $viewer, string $profile): void {
-    User::factory()->create(['username' => 'admin']);
-    User::factory()->create(['username' => 'other-admin']);
-    User::factory()->create(['username' => 'someone']);
-    $user = User::factory()->create(['username' => 'octocat']);
+    User::factory()->create(['handle' => 'admin']);
+    User::factory()->create(['handle' => 'other-admin']);
+    User::factory()->create(['handle' => 'someone']);
+    $user = User::factory()->create(['handle' => 'octocat']);
     UserTimeout::factory()->for($user)->create();
 
     config(['app.admins' => ['admin', 'other-admin']]);
 
-    $this->actingAs(User::query()->where('username', $viewer)->sole())
+    $this->actingAs(User::query()->whereRelation('profile', 'handle', $viewer)->sole())
         ->get(route('user.show', ['user' => $profile]))
         ->assertInertia(fn ($page) => $page->where('moderation', null));
 })->with([
@@ -174,24 +175,57 @@ it('stops a user in timeout from sending remotes', function (): void {
         ->assertJsonPath('timeout.reason', 'Spam or self-promotion');
 });
 
-it('stops a user in timeout from starting, renaming, or growing orgs and messaging them', function (): void {
-    $user = User::factory()->create();
-    [$member, $newcomer] = followersOf($user, 2);
-    $org = createOrg($user, [$member]);
+it('stops a user in timeout from going live, but lets them end a stream', function (): void {
+    $user = User::factory()->create([
+        'live_platform' => 'youtube',
+        'live_url' => 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        'live_ends_at' => now()->addHour(),
+    ]);
     UserTimeout::factory()->for($user)->create();
 
     $this->actingAs($user)
-        ->postJson(route('org.store'), ['name' => 'buy my course', 'members' => [$member->username]])
+        ->putJson(route('user-live.update'), ['url' => 'https://www.twitch.tv/buymycourse', 'hours' => 12])
+        ->assertForbidden()
+        ->assertJsonPath('timeout.reason', 'Spam or self-promotion');
+
+    expect($user->refresh()->live_url)->toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+
+    $this->delete(route('user-live.destroy'))->assertRedirect();
+
+    expect($user->refresh()->live_url)->toBeNull();
+});
+
+it('stops a user in timeout from starting, renaming, or growing orgs, and from messaging or pinning in them', function (): void {
+    $user = User::factory()->create();
+    [$member, $newcomer] = followersOf($user, 2);
+    $org = createOrg($user, [$member]);
+    $message = pushToOrg($member, $org);
+    UserTimeout::factory()->for($user)->create();
+
+    $this->actingAs($user)
+        ->postJson(route('org.store'), ['name' => 'buy my course', 'members' => [$member->handle]])
         ->assertForbidden()
         ->assertJsonPath('timeout.reason', 'Spam or self-promotion');
 
     $this->putJson(route('org.update', $org), ['name' => 'buy my course'])->assertForbidden();
-    $this->postJson(route('org-member.store', $org), ['members' => [$newcomer->username], 'share_history' => false])->assertForbidden();
+    $this->postJson(route('org-member.store', $org), ['members' => [$newcomer->handle], 'share_history' => false])->assertForbidden();
     $this->postJson(route('org-message.store', $org), ['body' => 'hello', 'client_id' => Str::uuid()->toString()])->assertForbidden();
+    $this->putJson(route('message-pin.update', $message))->assertForbidden();
 
     expect(Conversation::query()->count())->toBe(1)
         ->and(Conversation::query()->sole()->name)->toBe('dev/null core')
-        ->and(Conversation::query()->sole()->participants()->count())->toBe(2);
+        ->and(Conversation::query()->sole()->participants()->count())->toBe(2)
+        ->and($message->fresh()?->pinned_at)->toBeNull();
+});
+
+it('stops a user in timeout from opening issues', function (): void {
+    $user = User::factory()->create();
+    UserTimeout::factory()->for($user)->create();
+
+    $this->actingAs($user)
+        ->postJson(route('issue.store'), ['command' => '/bug', 'body' => 'buy my course'])
+        ->assertForbidden()
+        ->assertJsonPath('timeout.reason', 'Spam or self-promotion');
 });
 
 it('tells the user how long is left of the timeout that ends last, rounded up', function (string $endsIn, string $remaining): void {
@@ -301,7 +335,8 @@ it('keeps the timeouts of a deleted account, so signing up again neither ends on
     expect(UserTimeout::query()->count())->toBe(2);
 
     Socialite::fake('github', GitHubUser::fake(['id' => '583231', 'nickname' => 'octocat']));
-    fakeGitHubSponsorsListing();
+    $github = $this->mock(GitHubProvider::class);
+    $github->shouldReceive('hasSponsorsListing')->andReturnFalse();
 
     $this->get(route('login.store'))->assertRedirect();
 

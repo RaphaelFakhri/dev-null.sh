@@ -121,6 +121,8 @@ export function LiveAvatarMarker({ className }: { className?: string }) {
                 'absolute -bottom-1.5 left-1/2 -translate-x-1/2 ring-2 ring-card',
                 className,
             )}
+            // On a graph node, it hangs below the ring: the lines go round it and its 2px ring.
+            data-graph-overhang="2"
         />
     );
 }
@@ -137,7 +139,7 @@ export function LiveStreamTrigger({
     className,
     children,
 }: {
-    user: Pick<User, 'name' | 'username' | 'avatar_url' | 'live'>;
+    user: Pick<User, 'name' | 'handle' | 'avatar_url' | 'live'>;
     hoverCard?: boolean;
     showProfile?: boolean;
     className?: string;
@@ -224,7 +226,7 @@ function LiveStreamSheet({
     open,
     onOpenChange,
 }: {
-    user: Pick<User, 'name' | 'username' | 'avatar_url'>;
+    user: Pick<User, 'name' | 'handle' | 'avatar_url'>;
     stream: LiveStream;
     showProfile: boolean;
     open: boolean;
@@ -264,7 +266,7 @@ function LiveStreamSheet({
                                     {user.name}
                                 </p>
                                 <p className="truncate font-mono text-[13px] text-muted-foreground">
-                                    @{user.username}
+                                    @{user.handle}
                                 </p>
                             </div>
                             <Button variant="secondary" asChild>

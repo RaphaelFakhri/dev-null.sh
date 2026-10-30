@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 return [
 
+    'web_push' => [
+        'subject' => env('WEB_PUSH_SUBJECT', 'https://dev-null.sh'),
+        'public_key' => env('WEB_PUSH_PUBLIC_KEY'),
+        'private_key' => env('WEB_PUSH_PRIVATE_KEY'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services
@@ -15,6 +21,11 @@ return [
     | a conventional file to locate the various service credentials.
     |
     */
+
+    'cloudflare_turn' => [
+        'key_id' => env('CLOUDFLARE_TURN_KEY_ID'),
+        'api_token' => env('CLOUDFLARE_TURN_API_TOKEN'),
+    ],
 
     'cloudflare_stream' => [
         'account_id' => env('CLOUDFLARE_STREAM_ACCOUNT_ID'),
@@ -37,10 +48,6 @@ return [
     'github_app' => [
         'id' => env('GITHUB_APP_ID'),
         'private_key' => env('GITHUB_APP_PRIVATE_KEY'),
-    ],
-
-    'openai' => [
-        'key' => env('OPENAI_API_KEY'),
     ],
 
     'postmark' => [

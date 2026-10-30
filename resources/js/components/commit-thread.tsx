@@ -9,6 +9,7 @@ import {
 import type { CSSProperties, FormEvent, KeyboardEvent, ReactNode } from 'react';
 import {
     useCallback,
+    useContext,
     useEffect,
     useEffectEvent,
     useRef,
@@ -40,17 +41,20 @@ import {
     useComposerPreview,
 } from '@/components/composer-preview';
 import {
+    graphDash,
+    graphStrokeWidth,
     useGraphDimmed,
     useGraphNode,
     useGraphNodeId,
-    useGraphOverlay,
+    WithoutGraph,
 } from '@/components/graph-canvas';
 import { RailDot, railDotRing } from '@/components/graph-rail';
+import { HiddenLinkPreviewContext } from '@/components/hidden-link-preview-context';
 import InputError from '@/components/input-error';
 import { LinkCardPicker } from '@/components/link-card-picker';
 import { LinkPreview } from '@/components/link-preview';
 import { MentionTextarea } from '@/components/mention-textarea';
-import { SecretWarning } from '@/components/secret-warning';
+import { ReplyRecipientPicker } from '@/components/reply-recipient-picker';
 import { StashLabel } from '@/components/stash-label';
 import { showTimeout, timeoutFrom } from '@/components/timeout-dialog';
 import { TimestampTooltip } from '@/components/timestamp-tooltip';
@@ -70,7 +74,6 @@ import { useImageAttachments } from '@/hooks/use-image-attachments';
 import { focusCommit } from '@/hooks/use-keyboard-shortcuts';
 import { useLinkCard } from '@/hooks/use-link-card';
 import { useNow } from '@/hooks/use-now';
-import { useSecretWarning } from '@/hooks/use-secret-warning';
 import { useSharedState } from '@/hooks/use-shared-state';
 import { moveCaretToEnd, useHasStash, useStash } from '@/hooks/use-stash';
 import { useUser } from '@/hooks/use-user';
@@ -303,14 +306,16 @@ export function useThread(
     const replyRequest = useRef(0);
     const [isReplying, setIsReplying] = useState(false);
 
-    const [previousPreview, setPreviousPreview] = useState(preview);
-    if (preview !== previousPreview) {
-        setPreviousPreview(preview);
-        if (preview !== undefined && (replies?.length ?? 0) <= repliesPerPage) {
+    const [previousInitial, setPreviousInitial] = useState(initial);
+    if (initial !== previousInitial) {
+        setPreviousInitial(initial);
+        if (initial !== undefined && (replies?.length ?? 0) <= repliesPerPage) {
+            ++replyRequest.current;
+            setIsLoading(false);
             setThread((current) => ({
                 ...current,
-                replies: preview.data,
-                nextCursor: preview.next_cursor,
+                replies: initial.data,
+                nextCursor: initial.next_cursor,
             }));
         }
     }
@@ -430,6 +435,25 @@ export function useThread(
         }
     });
 
+    const onInitialChanged = useEffectEvent(() => {
+        if (
+            replies !== null &&
+            (initial === undefined || replies.length > repliesPerPage)
+        ) {
+            reload();
+        }
+    });
+    const loadedInitial = useRef({ initial, count: commit.replies_count });
+    useEffect(() => {
+        if (
+            loadedInitial.current.initial !== initial ||
+            loadedInitial.current.count !== commit.replies_count
+        ) {
+            loadedInitial.current = { initial, count: commit.replies_count };
+            onInitialChanged();
+        }
+    }, [initial, commit.replies_count]);
+
     const loadedExcept = useRef(except);
     useEffect(() => {
         if (loadedExcept.current !== except) {
@@ -527,7 +551,7 @@ export function ShowThreadLink({ thread }: { thread: Thread }) {
         <Link
             href={CommitController.show({ user: commit.user, commit })}
             className="mt-2 -ml-2 flex w-fit items-center gap-1 rounded-md px-2 py-0.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            aria-label={`Show thread by @${commit.user.username}`}
+            aria-label={`Show thread by @${commit.user.handle}`}
             data-test="show-thread-link"
         >
             <ListTree className="size-4" aria-hidden />
@@ -540,10 +564,15 @@ export function ThreadActions({
     thread,
     actions,
     hasKeyboardShortcuts = false,
+    hasComposer = true,
+    isReply = false,
 }: {
     thread: Thread;
     actions?: ReactNode;
     hasKeyboardShortcuts?: boolean;
+    /** False when the caller renders the reply composer itself, as ThreadReplyComposer. */
+    hasComposer?: boolean;
+    isReply?: boolean;
 }) {
     const { auth } = usePage().props;
     const { commit } = thread;
@@ -636,19 +665,27 @@ export function ThreadActions({
                     <CommitSecondaryActions
                         commit={commit}
                         keyShortcut={hasKeyboardShortcuts ? 'y' : undefined}
+                        isReply={isReply}
                     />
                 )}
             </div>
 
-            {thread.isReplying && !isDeleted(commit) && (
-                <ReplyComposer
-                    parent={commit}
-                    onCancel={thread.cancelReply}
-                    onReplied={thread.onReplied}
-                />
-            )}
+            {hasComposer && <ThreadReplyComposer thread={thread} />}
         </>
     );
+}
+
+export function ThreadReplyComposer({ thread }: { thread: Thread }) {
+    const { commit } = thread;
+
+    return thread.isReplying && !isDeleted(commit) ? (
+        <ReplyComposer
+            key={commit.id}
+            parent={commit}
+            onCancel={thread.cancelReply}
+            onReplied={thread.onReplied}
+        />
+    ) : null;
 }
 
 export function ThreadSpine({
@@ -658,67 +695,76 @@ export function ThreadSpine({
     thread: Thread;
     className?: string;
 }) {
-    const isOverlaid = useGraphOverlay();
-
-    if (isOverlaid || !thread.isOpen || !thread.replies?.length) {
+    if (!thread.isOpen || !thread.replies?.length) {
         return null;
     }
 
     return (
+        <WithoutGraph>
+            <span
+                aria-hidden
+                className={cn(
+                    'absolute bottom-0 left-1/2 w-0.5 -translate-x-1/2',
+                    className,
+                )}
+                style={laneStrokeStyle(laneOf(thread.commit), {
+                    dash: graphDash,
+                })}
+                data-test="thread-spine"
+            />
+        </WithoutGraph>
+    );
+}
+
+/**
+ * A piece of the parent's column, in its lane, as the graph canvas draws it on from one reply's corner to the next.
+ */
+function ThreadColumn({ className }: { className: string }) {
+    return (
         <span
             aria-hidden
-            className={cn(
-                'absolute bottom-0 left-1/2 w-px -translate-x-1/2',
-                className,
-            )}
-            style={laneStrokeStyle(laneOf(thread.commit))}
-            data-test="thread-spine"
+            className={cn('absolute w-0.5 -translate-x-1/2', className)}
+            style={laneStrokeStyle('var(--lane)', { dash: graphDash })}
+            data-test="thread-column"
         />
     );
 }
 
-const replyLink =
-    'absolute left-[calc(var(--indent)+12px)] w-px sm:left-[calc(var(--indent)+14px)]';
-
-function ReplyLinks({
-    previousLane,
-    lane,
+/**
+ * A reply's branch off its parent: an elbow to the reply, and the column on below it when another reply follows. A
+ * trunk going on below the replies is their column already, so they only turn off it.
+ */
+function ReplyBranch({
+    isOnTrunk,
     hasNext,
 }: {
-    previousLane: string | null;
-    lane: string;
+    isOnTrunk: boolean;
     hasNext: boolean;
 }) {
     return (
         <span aria-hidden>
-            {previousLane === null ? (
-                <ThreadElbow />
-            ) : (
-                <span
-                    className={cn(replyLink, 'top-0 h-1.5')}
-                    style={laneStrokeStyle(previousLane)}
-                    data-test="reply-link"
-                />
-            )}
-            {hasNext && (
-                <span
-                    className={cn(
-                        replyLink,
-                        'top-[38px] bottom-0 sm:top-[42px]',
-                    )}
-                    style={laneStrokeStyle(lane)}
-                    data-test="reply-tail"
-                />
+            <ThreadElbow isOnTrunk={isOnTrunk} />
+            {hasNext && !isOnTrunk && (
+                <ThreadColumn className="top-2.5 bottom-0 left-(--spine) sm:top-3" />
             )}
         </span>
     );
 }
 
-function ThreadElbow() {
+function ThreadElbow({
+    isOnTrunk,
+    className,
+}: {
+    isOnTrunk: boolean;
+    className?: string;
+}) {
     return (
         <svg
             aria-hidden
-            className="pointer-events-none absolute top-0 left-(--spine) h-[22px] w-[calc(var(--indent)-var(--spine)-4px)] overflow-visible sm:h-6"
+            className={cn(
+                'pointer-events-none absolute top-0 left-(--spine) h-[22px] w-[calc(var(--indent)-var(--spine)-4px)] overflow-visible sm:h-6',
+                className,
+            )}
             viewBox="0 0 32 24"
             preserveAspectRatio="none"
             fill="none"
@@ -726,10 +772,10 @@ function ThreadElbow() {
         >
             {/* Quarter-circle corner matching rounded-bl-xl. */}
             <path
-                d="M 0 0 L 0 12 Q 0 23.5 12 23.5 L 32 23.5"
+                d={`${isOnTrunk ? 'M 0 12' : 'M 0 0 L 0 12'} Q 0 23.5 12 23.5 L 32 23.5`}
                 stroke="var(--lane)"
-                strokeWidth="1"
-                strokeDasharray="2 2"
+                strokeWidth={graphStrokeWidth}
+                strokeDasharray={`${graphDash} ${graphDash}`}
                 vectorEffect="non-scaling-stroke"
             />
         </svg>
@@ -740,13 +786,15 @@ export function ThreadReplies({
     thread,
     depth,
     graphParent,
+    isOnTrunk = false,
 }: {
     thread: Thread;
     depth: number;
-    /** In a graph canvas, the node the first reply branches off. */
+    /** In a graph canvas, the node the replies branch off. */
     graphParent?: string;
+    /** Whether the parent's trunk goes on below the replies, to the next commit of the thread. */
+    isOnTrunk?: boolean;
 }) {
-    const isOverlaid = useGraphOverlay();
     const nodeId = useGraphNodeId();
 
     if (!thread.isOpen) {
@@ -779,77 +827,51 @@ export function ThreadReplies({
                             reply={reply}
                             parent={thread.commit}
                             depth={depth + 1}
-                            graph={
-                                isFlattened
-                                    ? {}
-                                    : {
-                                          after:
-                                              index === 0
-                                                  ? undefined
-                                                  : nodeId(
-                                                        replies[index - 1].id,
-                                                    ),
-                                          parent:
-                                              index === 0
-                                                  ? branchFrom
-                                                  : undefined,
-                                      }
-                            }
+                            graph={isFlattened ? {} : { parent: branchFrom }}
                             links={
-                                isFlattened || isOverlaid ? null : (
-                                    <ReplyLinks
-                                        previousLane={
-                                            index === 0
-                                                ? null
-                                                : laneOf(replies[index - 1])
-                                        }
-                                        lane={laneOf(reply)}
-                                        hasNext={
-                                            index < replies.length - 1 ||
-                                            thread.hasMore
-                                        }
-                                    />
+                                isFlattened ? null : (
+                                    <WithoutGraph>
+                                        <ReplyBranch
+                                            isOnTrunk={isOnTrunk}
+                                            hasNext={
+                                                index < replies.length - 1 ||
+                                                thread.hasMore
+                                            }
+                                        />
+                                    </WithoutGraph>
                                 )
                             }
                             onDeleted={thread.onDeleted}
                         />
                     ))}
                     {thread.hasMore && (
-                        <div className="relative pt-1.5 pl-(--indent)">
-                            {!isFlattened &&
-                                !isOverlaid &&
-                                thread.replies.length > 0 && (
-                                    <span
-                                        aria-hidden
-                                        className={cn(
-                                            replyLink,
-                                            'top-0 h-5 sm:h-5.5',
-                                        )}
-                                        style={laneStrokeStyle(
-                                            laneOf(
-                                                thread.replies[
-                                                    thread.replies.length - 1
-                                                ],
-                                            ),
-                                        )}
-                                    />
-                                )}
+                        <div
+                            className={cn(
+                                'relative pt-1.5',
+                                isFlattened || isOnTrunk
+                                    ? 'pl-(--indent)'
+                                    : // Centres the dot on the parent's column.
+                                      'ml-[calc(var(--spine)-12px)] sm:ml-[calc(var(--spine)-14px)]',
+                            )}
+                            data-test="more-replies"
+                        >
+                            {!isFlattened && (
+                                <WithoutGraph>
+                                    {isOnTrunk ? (
+                                        <ThreadElbow
+                                            isOnTrunk
+                                            className="h-5 w-[calc(var(--indent)-var(--spine)+4px)] sm:h-5.5"
+                                        />
+                                    ) : (
+                                        <ThreadColumn className="top-0 left-3 h-5 sm:left-3.5 sm:h-5.5" />
+                                    )}
+                                </WithoutGraph>
+                            )}
                             <MoreRepliesButton
                                 thread={thread}
                                 isFlattened={depth + 1 > maxIndentDepth}
                                 graph={
-                                    isFlattened
-                                        ? {}
-                                        : thread.replies.length > 0
-                                          ? {
-                                                after: nodeId(
-                                                    thread.replies[
-                                                        thread.replies.length -
-                                                            1
-                                                    ].id,
-                                                ),
-                                            }
-                                          : { parent: branchFrom }
+                                    isFlattened ? {} : { parent: branchFrom }
                                 }
                             />
                         </div>
@@ -935,7 +957,7 @@ function MoreRepliesButton({
                             <>
                                 {' to '}
                                 <span className="font-mono text-xs">
-                                    @{thread.commit.user.username}
+                                    @{thread.commit.user.handle}
                                 </span>
                             </>
                         )}
@@ -963,7 +985,7 @@ function MoreRepliesButton({
     );
 }
 
-type ReplyGraph = { after?: string; parent?: string };
+type ReplyGraph = { parent?: string };
 
 /** A reply avatar's ring is a 2px ring, 2px away from the picture. */
 const replyRing = 4;
@@ -1061,6 +1083,7 @@ function CommitReply({
 }) {
     const { auth } = usePage().props;
     const now = useNow();
+    const hiddenLinkPreviewUrl = useContext(HiddenLinkPreviewContext);
     const { bodyRef, ...translation } = useCommitTranslation(reply);
     const wasDeleted = useIsCommitDeleted(reply.id);
     const commitNotFound = useCommitNotFound();
@@ -1181,7 +1204,7 @@ function CommitReply({
                                 tabIndex={-1}
                                 className="hidden truncate font-mono text-xs text-muted-foreground sm:inline"
                             >
-                                @{reply.user.username}
+                                @{reply.user.handle}
                             </Link>
                         </UserPreview>
                         {isQuote && (
@@ -1234,7 +1257,7 @@ function CommitReply({
                                 {isQuote ? 'quoting' : 'replying to'}{' '}
                                 {isDeleted(parent)
                                     ? '[deleted]'
-                                    : `@${parent.user.username}`}
+                                    : `@${parent.user.handle}`}
                             </span>
                         </p>
                     )}
@@ -1243,20 +1266,22 @@ function CommitReply({
                         <FoldedCommitBody
                             segments={translation.segments}
                             mentions={reply.mentions}
+                            organizationMentions={reply.organization_mentions}
                             previewSegments={translation.previewSegments}
                             className="text-[15px]"
                         />
                     </div>
                     {translation.notice}
                     <CommitImages commit={reply} />
-                    {reply.link_preview && (
-                        <LinkPreview
-                            refreshUrl={CommitLinkPreviewController.show.url(
-                                reply.id,
-                            )}
-                            preview={reply.link_preview}
-                        />
-                    )}
+                    {reply.link_preview &&
+                        reply.link_preview.url !== hiddenLinkPreviewUrl && (
+                            <LinkPreview
+                                refreshUrl={CommitLinkPreviewController.show.url(
+                                    reply.id,
+                                )}
+                                preview={reply.link_preview}
+                            />
+                        )}
                     <ShowThreadLink thread={thread} />
 
                     {isConfirming ? (
@@ -1284,10 +1309,12 @@ function CommitReply({
                     ) : (
                         <ThreadActions
                             thread={thread}
+                            isReply
                             actions={
                                 <>
                                     <CommitStarButton
                                         commit={reply}
+                                        keyShortcut="s"
                                         className="px-2 py-0.5"
                                     />
                                     <CommitPastelButton
@@ -1308,6 +1335,7 @@ function CommitReply({
     );
 }
 
+/** Composes a reply with optional recipients inherited from the parent, excluding the signed-in user. */
 function ReplyComposer({
     parent,
     onCancel,
@@ -1319,12 +1347,30 @@ function ReplyComposer({
 }) {
     const { user } = useUser();
     const commitNotFound = useCommitNotFound();
+    const participants = Array.from(
+        new Map(
+            [
+                [parent.user.id, parent.user.handle],
+                ...Object.entries(parent.mentions ?? {}).map(([handle, id]) => [
+                    id,
+                    handle,
+                ]),
+            ]
+                .filter(([id]) => id !== user.id)
+                .map(([id, handle]) => [id, { id, handle }]),
+        ).values(),
+    );
+    const hasRecipientChoice = participants.some(
+        ({ id }) => id !== parent.user.id,
+    );
     const {
         body,
         images,
         descriptions,
         isRestored,
         key: stashKey,
+        excludedRecipientIds,
+        updateExcludedRecipientIds,
         updateBody,
         updateImages,
         drop,
@@ -1342,6 +1388,7 @@ function ReplyComposer({
             body: string;
             images: File[];
             image_descriptions: string[];
+            reply_recipients: string[];
             link_preview_url?: string;
             commit_rules_accepted?: boolean;
         },
@@ -1350,9 +1397,9 @@ function ReplyComposer({
         body: '',
         images: [],
         image_descriptions: [],
+        reply_recipients: [],
     });
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const secrets = useSecretWarning(body);
     const commitRules = useCommitRules();
     const isReplyable =
         (images.length > 0 || characterCount(body.trim()) >= minBodyLength) &&
@@ -1402,8 +1449,7 @@ function ReplyComposer({
         if (
             request.processing ||
             attachments.isReading() ||
-            !commitRules.beforeSubmit() ||
-            !secrets.beforeSubmit()
+            !commitRules.beforeSubmit()
         ) {
             return;
         }
@@ -1412,6 +1458,13 @@ function ReplyComposer({
             body,
             images,
             image_descriptions: descriptions,
+            reply_recipients: participants
+                .filter(
+                    ({ id }) =>
+                        id !== parent.user.id &&
+                        !excludedRecipientIds.includes(id),
+                )
+                .map(({ id }) => id),
             commit_rules_accepted: commitRules.hasAccepted(),
             ...(linkCard.isChosen
                 ? { link_preview_url: linkCard.link ?? '' }
@@ -1459,8 +1512,16 @@ function ReplyComposer({
                 <ImageDropOverlay className="-inset-px" />
             )}
             <label htmlFor={`reply-${parent.id}`} className="sr-only">
-                Reply to @{parent.user.username}
+                Reply to @{parent.user.handle}
             </label>
+            {hasRecipientChoice && (
+                <ReplyRecipientPicker
+                    participants={participants}
+                    authorId={parent.user.id}
+                    excludedIds={excludedRecipientIds}
+                    onExcludedIdsChange={updateExcludedRecipientIds}
+                />
+            )}
             <div className="grid">
                 <MentionTextarea
                     ref={textareaRef}
@@ -1475,7 +1536,11 @@ function ReplyComposer({
                     onPaste={attachments.onPaste}
                     onFocus={isRestored ? moveCaretToEnd : undefined}
                     maxLength={maxRawBodyLength}
-                    placeholder={`Reply to @${parent.user.username}`}
+                    placeholder={
+                        hasRecipientChoice
+                            ? 'Post your reply'
+                            : `Reply to @${parent.user.handle}`
+                    }
                     className={cn(
                         'col-start-1 row-start-1 block field-sizing-content max-h-[50dvh] min-h-9 w-full resize-none overflow-x-hidden overflow-y-auto bg-transparent px-1 text-base leading-relaxed outline-none placeholder:text-muted-foreground focus-visible:outline-none md:text-[15px]',
                         { invisible: preview.isPreviewing },
@@ -1492,7 +1557,14 @@ function ReplyComposer({
                 )}
             </div>
             <InputError
-                message={errors.body ?? errors.link_preview_url}
+                message={
+                    errors.body ??
+                    errors.reply_recipients ??
+                    Object.entries(errors).find(([key]) =>
+                        key.startsWith('reply_recipients.'),
+                    )?.[1] ??
+                    errors.link_preview_url
+                }
                 className="px-1"
             />
             {!preview.isPreviewing && (
@@ -1504,16 +1576,6 @@ function ReplyComposer({
                 />
             )}
             <CommitRulesDialog rules={commitRules} textarea={textareaRef} />
-            <SecretWarning
-                body={body}
-                findings={secrets.findings}
-                textarea={textareaRef}
-                onChange={updateBody}
-                confirming={secrets.confirming}
-                onConfirmingChange={secrets.setConfirming}
-                onApprove={secrets.approve}
-                onEdit={preview.close}
-            />
             <InputError
                 message={attachments.error ?? imageErrorFrom(errors)}
                 className="mt-1 px-1"

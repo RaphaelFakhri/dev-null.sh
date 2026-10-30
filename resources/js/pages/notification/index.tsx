@@ -6,6 +6,7 @@ import {
     Check,
     ChevronDown,
     ChevronsUp,
+    GitCommitVertical,
     MessageSquareReply,
     Quote,
     Star,
@@ -522,7 +523,7 @@ function NotificationGroupItem({
     return (
         <article
             data-notification-group={notification.group_id}
-            className="transition-colors has-[[data-notification-link]:focus-visible]:bg-accent/50 has-[[data-notification-link]:hover]:bg-accent/40"
+            className="isolate transition-colors has-[[data-notification-link]:focus-visible]:bg-accent/50 has-[[data-notification-link]:hover]:bg-accent/40"
         >
             <NotificationContent
                 notification={notification}
@@ -756,7 +757,8 @@ export function NotificationContent({
     const isActorsCommit =
         notification.type === 'replied' ||
         notification.type === 'quoted' ||
-        notification.type === 'mentioned';
+        notification.type === 'mentioned' ||
+        notification.type === 'first_commit';
     const level = notification.type === 'leveled_up' ? notification : null;
     const Icon = {
         followed: UserPlus,
@@ -765,6 +767,7 @@ export function NotificationContent({
         quoted: Quote,
         starred: Star,
         mentioned: AtSign,
+        first_commit: GitCommitVertical,
         approved: Check,
         rejected: X,
     }[notification.type];
@@ -804,6 +807,7 @@ export function NotificationContent({
             ? `starred your ${starredImages.length === 1 ? 'image' : 'images'}`
             : 'starred your commit',
         mentioned: 'mentioned you',
+        first_commit: 'made their first commit',
         approved: 'Your commit was approved',
         rejected: 'Your commit was rejected',
         leveled_up: level && `You reached level ${level.level}: ${level.rank}`,
@@ -870,9 +874,9 @@ export function NotificationContent({
                                 </span>
                                 <span
                                     className="hidden shrink-4 truncate font-mono text-[13px] text-muted-foreground sm:inline"
-                                    title={`@${actor.username}`}
+                                    title={`@${actor.handle}`}
                                 >
-                                    @{actor.username}
+                                    @{actor.handle}
                                 </span>
                             </Link>
                         </UserPreview>
@@ -923,9 +927,9 @@ export function NotificationContent({
                                 </span>
                                 <span
                                     className="hidden shrink-4 truncate font-mono text-[13px] text-muted-foreground sm:inline"
-                                    title={`@${actor.username}`}
+                                    title={`@${actor.handle}`}
                                 >
-                                    @{actor.username}
+                                    @{actor.handle}
                                 </span>
                             </UserPreview>
                             <span className="sr-only">
@@ -964,9 +968,9 @@ export function NotificationContent({
                 href={show(actor)}
                 tabIndex={-1}
                 className="relative z-10 shrink-4 truncate font-mono text-[13px] text-muted-foreground"
-                title={`@${actor.username}`}
+                title={`@${actor.handle}`}
             >
-                @{actor.username}
+                @{actor.handle}
             </Link>
         </>
     );
@@ -1164,9 +1168,9 @@ export function NotificationContent({
                                                             href={show(actor)}
                                                             tabIndex={-1}
                                                             className="relative z-10 inline-block max-w-full truncate align-bottom font-mono text-[13px] text-muted-foreground"
-                                                            title={`@${actor.username}`}
+                                                            title={`@${actor.handle}`}
                                                         >
-                                                            @{actor.username}
+                                                            @{actor.handle}
                                                         </Link>
                                                     </UserPreview>{' '}
                                                 </>
@@ -1191,7 +1195,7 @@ export function NotificationContent({
                             </>
                         )}
                         {excerpt}
-                        {quote && <div className="relative z-10">{quote}</div>}
+                        {quote}
                         {reason}
                     </div>
                     {notification.type === 'followed' && actorsCount === 1 && (

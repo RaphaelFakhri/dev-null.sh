@@ -47,13 +47,14 @@ final readonly class LogController
 
         return Inertia::render('log/show', [
             'log' => $log,
-            'commits' => Inertia::scroll(fn (): CursorPaginator => $commits->paginate($log, $user, $request->through())),
+            'commits' => Inertia::scroll(fn (): CursorPaginator => $commits->paginate($log, $user, $request->through(), $request->cursor($log))),
             'isRanked' => $log->isRanked(),
             'newCommitsCount' => Inertia::optional(function () use ($request, $user, $log, $latest): int {
                 $seen = $request->since();
 
                 return $seen instanceof Commit ? $latest->count($log, $user, $seen) : 0;
             }),
+            'removedCommitIds' => Inertia::optional(fn (): array => $latest->missing($log, $user, $request->pending())),
             'suggestions' => fn (): Collection => $user instanceof User && $log === Log::Following && ! $user->following()->exists()
                 ? $suggested->get($user)
                 : new Collection(),

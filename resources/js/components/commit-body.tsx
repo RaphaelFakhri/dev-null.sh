@@ -1,5 +1,6 @@
 import { usePage } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
+import { CertificateText } from '@/components/certificate-text';
 import { CodeBlock } from '@/components/code-block';
 import { LinkifiedText } from '@/components/linkified-text';
 import { bodyBlocks } from '@/lib/code';
@@ -10,11 +11,13 @@ import type { BodySegment, Commit } from '@/types';
 export function CommitBody({
     segments,
     mentions,
+    organizationMentions = null,
     className,
     isStatic = false,
 }: {
     segments: BodySegment[];
     mentions: Commit['mentions'];
+    organizationMentions?: Commit['organization_mentions'];
     className?: string;
     isStatic?: boolean;
 }) {
@@ -35,6 +38,7 @@ export function CommitBody({
                         <BodySegments
                             segments={block.segments}
                             mentions={mentions}
+                            organizationMentions={organizationMentions}
                             isStatic={isStatic}
                         />
                     </blockquote>
@@ -43,6 +47,7 @@ export function CommitBody({
                         key={index}
                         segments={block.segments}
                         mentions={mentions}
+                        organizationMentions={organizationMentions}
                         isStatic={isStatic}
                     />
                 ),
@@ -54,10 +59,12 @@ export function CommitBody({
 export function BodySegments({
     segments,
     mentions,
+    organizationMentions = null,
     isStatic = false,
 }: {
     segments: BodySegment[];
     mentions: Commit['mentions'];
+    organizationMentions?: Commit['organization_mentions'];
     isStatic?: boolean;
 }) {
     const { auth } = usePage().props;
@@ -72,6 +79,7 @@ export function BodySegments({
                                 key={index}
                                 text={emojify(segment.text)}
                                 mentions={mentions}
+                                organizationMentions={organizationMentions}
                                 pasteisMode={Boolean(auth.pasteis)}
                                 isStatic={isStatic}
                             />
@@ -82,7 +90,7 @@ export function BodySegments({
                                 key={index}
                                 className="rounded-sm bg-muted px-1 py-0.5 font-mono text-[0.875em]"
                             >
-                                {segment.code}
+                                <CertificateText text={segment.code} />
                             </code>
                         );
                     case 'block':
@@ -90,7 +98,9 @@ export function BodySegments({
                             <CodeBlock
                                 key={index}
                                 html={segment.html}
+                                fullHtml={segment.fullHtml}
                                 language={segment.language}
+                                filename={segment.filename}
                                 isCopyable={!isStatic}
                             />
                         );
@@ -107,11 +117,13 @@ export function FoldedCommitBody({
     segments,
     previewSegments,
     mentions,
+    organizationMentions = null,
     className,
 }: {
     segments: BodySegment[];
     previewSegments: BodySegment[] | null;
     mentions: Commit['mentions'];
+    organizationMentions?: Commit['organization_mentions'];
     className?: string;
 }) {
     const [isUnfolded, setIsUnfolded] = useState(false);
@@ -122,6 +134,7 @@ export function FoldedCommitBody({
             <CommitBody
                 segments={segments}
                 mentions={mentions}
+                organizationMentions={organizationMentions}
                 className={className}
             />
         );
@@ -146,8 +159,13 @@ export function FoldedCommitBody({
     return (
         <div ref={bodyRef} tabIndex={-1} className="outline-none">
             <CommitBody
-                segments={isUnfolded ? segments : previewSegments}
+                segments={
+                    isUnfolded
+                        ? segments
+                        : withFullBlocks(previewSegments, segments)
+                }
                 mentions={mentions}
+                organizationMentions={organizationMentions}
                 className={className}
             />
             {!isUnfolded && (
@@ -161,6 +179,24 @@ export function FoldedCommitBody({
                 </button>
             )}
         </div>
+    );
+}
+
+/**
+ * The preview is the start of the body, so its code blocks are the body's first ones, in order. The last may be cut
+ * to its first lines; each gets the whole block to copy.
+ */
+function withFullBlocks(
+    previewSegments: BodySegment[],
+    segments: BodySegment[],
+): BodySegment[] {
+    const blocks = segments.filter((segment) => segment.type === 'block');
+    let index = 0;
+
+    return previewSegments.map((segment) =>
+        segment.type === 'block'
+            ? { ...segment, fullHtml: blocks[index++]?.html }
+            : segment,
     );
 }
 
