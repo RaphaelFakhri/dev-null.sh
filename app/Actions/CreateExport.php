@@ -6,6 +6,7 @@ namespace App\Actions;
 
 use App\Enums\NotificationType;
 use App\Models\CommitImage;
+use App\Models\CommitReport;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\Device;
@@ -25,6 +26,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\LazyCollection;
 use stdClass;
+use Traversable;
 
 /**
  * @phpstan-type ExportPoll array{commit_id: string, duration_minutes: int, opened_at: string|null, options: list<string>, created_at: string}
@@ -46,6 +48,7 @@ use stdClass;
  *     dismissed_suggestions: Generator<int, ExportUser>,
  *     claimed_organizations: array<int, array{handle: string, claimed_at: string}>,
  *     messages: Generator<int, ExportMessage>,
+ *     reports: Traversable<int, array<string, mixed>>,
  *     remote_pins: array<int, array{to: string|null, pinned_at: string|null}>,
  *     remote_mutes: array<int, array{to: string|null, muted_until_at: string|null}>,
  *     notifications: Generator<int, array<string, int|string|null>>,
@@ -113,6 +116,13 @@ final readonly class CreateExport
             'dismissed_suggestions' => $this->handles($user->dismissedSuggestions()),
             'claimed_organizations' => $this->claimedOrganizations($user),
             'messages' => $this->messages($user),
+            'reports' => CommitReport::query()->where('reporter_id', $user->id)->oldest('id')->cursor()->map(fn (CommitReport $report): array => [
+                'commit_id' => $report->commit_id,
+                'reason' => $report->reason,
+                'details' => $report->details,
+                'attachments' => $report->toArray()['attachments'],
+                'created_at' => $report->created_at->toIso8601String(),
+            ])->getIterator(),
             'remote_mutes' => Conversation::query()
                 ->join('conversation_participants as mine', 'mine.conversation_id', '=', 'conversations.id')
                 ->where('mine.user_id', $user->id)

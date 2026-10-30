@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\CreateCommitReport;
 use App\Actions\CreateCommitTopics;
 use App\Actions\CreateCommitTranslation;
 use App\Actions\DeleteUser;
@@ -10,6 +11,7 @@ use App\Contracts\Services\TranslationProvider;
 use App\Dto\ThreadEngagement;
 use App\Models\Commit;
 use App\Models\CommitImage;
+use App\Models\CommitReport;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\Device;
@@ -25,6 +27,7 @@ use App\Models\PushSubscription;
 use App\Models\User;
 use App\Services\CommitTranslations;
 use App\Services\TheAlgorithm;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -366,6 +369,19 @@ it('erases the orgs a deleted user was the last one in, with the images and voic
         ->and(Storage::disk()->allFiles())->toBe([$other->path])
         ->and(ConversationParticipant::query()->whereNotNull('muted_until_at')->pluck('user_id')->all())->toBe([$former->id]);
 });
+
+it('erases private report attachments when the reporter or reported author is deleted', function (bool $deleteReporter): void {
+    Storage::fake();
+    $reporter = User::factory()->create();
+    $commit = Commit::factory()->create();
+    resolve(CreateCommitReport::class)->handle($reporter, $commit, 'other', null, [UploadedFile::fake()->image('evidence.png')]);
+    $report = CommitReport::query()->sole();
+    $path = $report->images[0]['path'];
+    Storage::disk()->assertExists($path);
+    resolve(DeleteUser::class)->handle($deleteReporter ? $reporter : $commit->user);
+    Storage::disk()->assertMissing($path);
+    $this->assertModelMissing($report);
+})->with([true, false]);
 
 it('erases browser push subscriptions with the account', function (): void {
     $user = User::factory()->create();
