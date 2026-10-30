@@ -26,7 +26,7 @@ final readonly class CreateUserLiveInput
             return $input;
         }
 
-        $uid = $this->stream->createLiveInput($user->username);
+        $uid = $this->stream->createLiveInput($user->handle);
 
         $user->update(['live_input_id' => $uid]);
 

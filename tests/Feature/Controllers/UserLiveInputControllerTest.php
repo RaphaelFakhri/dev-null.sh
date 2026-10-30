@@ -24,7 +24,7 @@ function liveInputResponse(string $uid): array
 }
 
 it('makes a live input the first time and flashes its stream key', function (): void {
-    $user = User::factory()->create(['username' => 'octocat']);
+    $user = User::factory()->create(['handle' => 'octocat']);
     Http::fake([
         'api.cloudflare.com/client/v4/accounts/account/stream/live_inputs' => Http::response(['result' => ['uid' => 'input-1']]),
         'api.cloudflare.com/client/v4/accounts/account/stream/live_inputs/input-1' => Http::response(liveInputResponse('input-1')),
