@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\LivePlatform;
 use App\Models\User;
+use App\Models\UserTimeout;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 
@@ -88,6 +89,16 @@ it('goes live on the live input for a few hours, playing it right on /dev/null',
             ->missing('user.live_input_id'));
 
     Http::assertNothingSent();
+});
+
+it('does not go live during a timeout, as a link cannot either', function (): void {
+    $user = User::factory()->create(['live_input_id' => 'input-1']);
+    UserTimeout::factory()->for($user)->create();
+
+    $this->actingAs($user)->putJson(route('user-live-input.update'), ['hours' => 3])
+        ->assertForbidden();
+
+    expect($user->refresh()->live_url)->toBeNull();
 });
 
 it('needs a stream key before going live', function (): void {

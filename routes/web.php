@@ -617,7 +617,9 @@ Route::middleware('auth')->group(function (): void {
     Route::post('settings/live/input', [UserLiveInputController::class, 'store'])
         ->middleware('throttle:10,1')
         ->name('user-live-input.store');
-    Route::put('settings/live/input', [UserLiveInputController::class, 'update'])->name('user-live-input.update');
+    Route::put('settings/live/input', [UserLiveInputController::class, 'update'])
+        ->middleware(PreventPostingInTimeout::class)
+        ->name('user-live-input.update');
 
     // Appearance...
     Route::get('settings/appearance', fn () => Inertia::render('appearance/update'))->name('appearance.edit');
